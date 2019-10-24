@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from PIL import ImageGrab
 from io import BytesIO
+import win32clipboard
 import base64
 import wx.adv
 import wx
@@ -9,13 +10,30 @@ TRAY_TOOLTIP = 'Inline image generator'
 TRAY_ICON = 'icon.ico'
 
 
-def clip_image_to_html_inline_image():
+def reinsert_dib_format():
+    """
+    If the clipboard contains data of a imagem in CF_DIBV5 format, reinsert it into the clipboard,
+    automatically alongside with a CF_DIB version.
+    This solves a issue where the MS Outlook does not populate the CF_DIB format, only the CF_DIBV5
+    causing ImageGrab.grabclipboard() to not recognize the image.
+    TODO: deal with a error state e.g. cannot open the clipboard.
+    """
+    try:
+        win32clipboard.OpenClipboard()
+        hwndDC = win32clipboard.GetClipboardData(
+            win32clipboard.CF_DIBV5)
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32clipboard.CF_DIBV5, hwndDC)
+    finally:
+        win32clipboard.CloseClipboard()
+
+
+def clip_image_to_html_inline_image(image):
     """
     Get a image from the clipboard and return the image as a inline base64 encoded <IMG> tag.
     """
-    buffered = BytesIO()
-    image = ImageGrab.grabclipboard()
     if image:
+        buffered = BytesIO()
         image.save(buffered, format="JPEG")
         img_str = base64.b64encode(buffered.getvalue())
         img_str = img_str.decode("utf-8")
@@ -24,6 +42,23 @@ def clip_image_to_html_inline_image():
                                ('image/jpeg', img_str))
         return str(new_tag)
     return ''
+
+
+def grab_image():
+    """
+    Tries to get the imagem from clipboard using ImageGrab.grabclipboard() and uses
+    reinsert_dib_format() if necessary.
+    """
+    image = ImageGrab.grabclipboard()
+
+    if image:
+        img_tag = clip_image_to_html_inline_image(image)
+    else:
+        reinsert_dib_format()
+        img_tag = clip_image_to_html_inline_image(image)
+
+    if img_tag:
+        copy_html_to_clipboard(img_tag)
 
 
 def copy_html_to_clipboard(html):
@@ -69,9 +104,7 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         self.SetIcon(icon, TRAY_TOOLTIP)
 
     def on_left_down(self, event):
-        img_tag = clip_image_to_html_inline_image()
-        if img_tag:
-            copy_html_to_clipboard(img_tag)
+        grab_image()
 
     def on_license_info(self, event):
         pass  # TODO
