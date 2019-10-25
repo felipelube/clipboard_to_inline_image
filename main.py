@@ -1,7 +1,11 @@
 from bs4 import BeautifulSoup
 from PIL import ImageGrab
 from io import BytesIO
+import wx.lib.newevent
 import win32clipboard
+import win32api
+import win32gui
+import win32con
 import base64
 import wx.adv
 import wx
@@ -116,9 +120,53 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         self.frame.Close()
 
 
+class CustomFrame(wx.Frame):
+    def __init__(self):
+        wx.Frame.__init__(self, None)
+
+        # Replace the default WndProc with ours, so we can process messages
+        self.oldWndProc = win32gui.SetWindowLong(self.GetHandle(),
+                                                 win32con.GWL_WNDPROC,
+                                                 self.CustomWndProc)
+
+        # Adds this window to the chain of clipboard viewers, saves the next window in the clipboard
+        # viewer chain
+        self.hwndNextViewer = win32clipboard.SetClipboardViewer(
+            self.GetHandle())
+
+    def onChangeCBChain(self, hWnd, msg, wParam, lParam):
+        """
+        Deals with the chain of clipboard viewers.
+        More info: https://docs.microsoft.com/en-us/windows/win32/dataxchg/wm-changecbchain#remarks
+        """
+        if wParam == self.hwndNextViewer:
+            self.hwndNextViewer = lParam
+
+        elif self.hwndNextViewer:
+            win32gui.SendMessage(self.hwndNextViewer, msg, wParam, lParam)
+
+    def CustomWndProc(self, hWnd, msg, wParam, lParam):
+        if msg == win32con.WM_DESTROY:
+            # Removes the window from the chain of clipboard viewers.
+            win32clipboard.ChangeClipboardChain(hWnd, self.hwndNextViewer)
+            # Restores the old WndProc when closing the application to give the wx framework
+            # opportunity to deal with the messages from the OS.
+            win32api.SetWindowLong(hWnd, win32con.GWL_WNDPROC, self.oldWndProc)
+
+        # Processes the clipboard on change
+        if msg == win32con.WM_DRAWCLIPBOARD:
+            grab_image()
+
+        if msg == win32con.WM_CHANGECBCHAIN:
+            self.onChangeCBChain(hWnd, msg, wParam, lParam)
+
+        # Pass all messages on to the original WndProc
+        return win32gui.CallWindowProc(self.oldWndProc, hWnd, msg, wParam, lParam)
+
+
 class App(wx.App):
     def OnInit(self):
-        frame = wx.Frame(None)
+        frame = CustomFrame()
         self.SetTopWindow(frame)
         TaskBarIcon(frame)
         return True
