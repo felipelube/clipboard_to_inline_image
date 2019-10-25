@@ -24,6 +24,8 @@ def reinsert_dib_format():
             win32clipboard.CF_DIBV5)
         win32clipboard.EmptyClipboard()
         win32clipboard.SetClipboardData(win32clipboard.CF_DIBV5, hwndDC)
+    except TypeError:
+        pass  # there is no CF_DIBV5 in the clipboard, ignore
     finally:
         win32clipboard.CloseClipboard()
 
